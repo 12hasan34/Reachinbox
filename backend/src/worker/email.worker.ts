@@ -3,6 +3,10 @@ import { redisConnection } from "../config/connection";
 import { db } from "../db/mysql";
 import { createTransporter } from "../utils/mailer";
 import { env } from "../config/env";
+import { getDelayUntilNextHour } from "../utils/time";
+import Redis from "ioredis";
+
+const redis = new Redis(redisConnection);
 
 new Worker(
   "email-queue",
@@ -15,29 +19,33 @@ new Worker(
     );
 
     const email = rows[0];
-    if (!email || email.status === "sent") return;
+    if (!email) return;
 
-    // Rate limiting (hour window)
-    const hourKey = `rate:${new Date().toISOString().slice(0, 13)}`;
+    // 🛑 Idempotency guard
+    if (email.status === "sent") return;
 
-    // BullMQ-safe Redis access via job.connection is NOT provided,
-    // so we will use a lightweight ioredis ONLY for counters
-    const Redis = require("ioredis");
-    const redis = new Redis(redisConnection);
+    const hourKey = `email_rate:${email.sender_email}:${new Date()
+      .toISOString()
+      .slice(0, 13)}`;
 
     const count = await redis.incr(hourKey);
     await redis.expire(hourKey, 3600);
 
+    // 🚦 Rate limit hit → reschedule
     if (count > env.MAX_EMAILS_PER_HOUR) {
-      throw new Error("Rate limit exceeded");
+      const delay = getDelayUntilNextHour();
+
+      await job.moveToDelayed(Date.now() + delay);
+      return;
     }
 
     const transporter = await createTransporter();
+
     await transporter.sendMail({
-      from: "no-reply@reachinbox.io",
+      from: email.sender_email,
       to: email.recipient_email,
-      subject: "Scheduled Email",
-      text: "Hello from ReachInbox"
+      subject: email.subject,
+      text: email.body
     });
 
     await db.query(
@@ -47,6 +55,6 @@ new Worker(
   },
   {
     connection: redisConnection,
-    concurrency: 2
+    concurrency: 3
   }
 );

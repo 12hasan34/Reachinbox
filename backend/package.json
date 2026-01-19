@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
       "dev": "ts-node-dev src/server.ts",
-      "worker": "ts-node-dev src/worker/email.worker.ts"
+      "worker": "ts-node-dev src/worker/email.worker.ts",
+      "rebuild": "ts-node src/jobs/rebuildQueue.ts"
   },
   "keywords": [],
   "author": "",

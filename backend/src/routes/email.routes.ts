@@ -33,4 +33,20 @@ router.post("/schedule", async (req, res) => {
   res.json({ success: true });
 });
 
+router.get("/scheduled", async (_, res) => {
+  const [rows] = await db.query(
+    "SELECT * FROM emails WHERE status='pending' ORDER BY scheduled_at ASC"
+  );
+
+  res.json(rows);
+});
+
+router.get("/sent", async (_, res) => {
+  const [rows] = await db.query(
+    "SELECT * FROM emails WHERE status IN ('sent','failed') ORDER BY sent_at DESC"
+  );
+
+  res.json(rows);
+});
+
 export default router;
