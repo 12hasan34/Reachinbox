@@ -1,13 +1,16 @@
+import cors from "cors";
 import express from "express";
 import emailRoutes from "./routes/email.routes";
 
-export const app = express();
+const app = express();
 
+app.use(cors()); // ✅ THIS FIXES FAILED FETCH
 app.use(express.json());
 
-// ✅ HEALTH CHECK
-app.get("/health", (_req, res) => {
-  res.status(200).send("OK");
+app.get("/health", (_, res) => {
+  res.json({ status: "ok" });
 });
 
 app.use("/emails", emailRoutes);
+
+export default app;
