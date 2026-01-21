@@ -14,17 +14,26 @@ new Worker(
     const { emailId } = job.data;
 
     const [rows]: any = await db.query(
-      "SELECT * FROM emails WHERE id = ?",
+      "SELECT e.id, e.recipient_email, e.status, c.subject, c.body " +
+        "FROM emails e " +
+        "JOIN email_campaigns c ON c.id = e.campaign_id " +
+        "WHERE e.id = ?",
       [emailId]
     );
 
-    const email = rows[0];
+    const email: {
+      id: number;
+      recipient_email: string;
+      status: string;
+      subject: string;
+      body: string;
+    } | undefined = rows[0];
     if (!email) return;
 
     // 🛑 Idempotency guard
     if (email.status === "sent") return;
 
-    const hourKey = `email_rate:${email.sender_email}:${new Date()
+    const hourKey = `email_rate:${env.SENDER_EMAIL}:${new Date()
       .toISOString()
       .slice(0, 13)}`;
 
@@ -41,17 +50,30 @@ new Worker(
 
     const transporter = await createTransporter();
 
-    await transporter.sendMail({
-      from: email.sender_email,
-      to: email.recipient_email,
-      subject: email.subject,
-      text: email.body
-    });
+    try {
+      await transporter.sendMail({
+        from: env.SENDER_EMAIL,
+        to: email.recipient_email,
+        subject: email.subject,
+        text: email.body
+      });
 
-    await db.query(
-      "UPDATE emails SET status='sent', sent_at=NOW() WHERE id=?",
-      [emailId]
-    );
+      await db.query(
+        "UPDATE emails SET status='sent', sent_at=NOW() WHERE id=?",
+        [emailId]
+      );
+    } catch (err) {
+      const attempts = job.opts.attempts ?? 1;
+      const nextAttempt = job.attemptsMade + 1;
+
+      if (nextAttempt >= attempts) {
+        await db.query(
+          "UPDATE emails SET status='failed', sent_at=NOW() WHERE id=?",
+          [emailId]
+        );
+      }
+      throw err;
+    }
   },
   {
     connection: redisConnection,
